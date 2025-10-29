@@ -1,0 +1,210 @@
+/* Tailwind v4 base */
+@import "tailwindcss";
+
+/* App base styles aligned with Figma spacing/typography */
+:root {
+  --bg: 255 255 255;
+  --fg: 17 24 39;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: rgb(var(--bg));
+  color: rgb(var(--fg));
+}
+
+/* Custom Scrollbar Styles */
+*::-webkit-scrollbar {
+  width: 6px !important;
+  height: 6px !important;
+}
+
+*::-webkit-scrollbar-track {
+  background: #f1f1f1 !important;
+  border-radius: 3px !important;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #29cc6a !important;
+  border-radius: 3px !important;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #1fa554 !important;
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin !important;
+  scrollbar-color: #29cc6a #f1f1f1 !important;
+}
+
+/* Ensure the dropdown has a scrollbar when needed */
+.status-dropdown {
+  overflow-y: auto !important;
+  max-height: 200px !important;
+}
+
+/* Custom DatePicker Styles */
+.custom-datepicker {
+  position: relative;
+}
+
+.custom-popper {
+  z-index: 9999 !important;
+}
+
+.custom-calendar {
+  border: 1px solid #e5e7eb !important;
+  border-radius: 8px !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+  font-family: inherit !important;
+  background: white !important;
+}
+
+.react-datepicker__header {
+  background-color: #29cc6a !important;
+  border-bottom: 1px solid #22c55e !important;
+  border-radius: 8px 8px 0 0 !important;
+  padding: 12px 0 !important;
+}
+
+.react-datepicker__current-month {
+  color: white !important;
+  font-weight: 600 !important;
+  font-size: 14px !important;
+  margin-bottom: 8px !important;
+}
+
+.react-datepicker__navigation {
+  top: 12px !important;
+}
+
+.react-datepicker__navigation--previous {
+  left: 12px !important;
+  border-right-color: white !important;
+}
+
+.react-datepicker__navigation--next {
+  right: 12px !important;
+  border-left-color: white !important;
+}
+
+.react-datepicker__navigation:hover *::before {
+  border-color: #f3f4f6 !important;
+}
+
+.react-datepicker__day-names {
+  background-color: #f9fafb !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  margin: 0 !important;
+  padding: 8px 0 !important;
+}
+
+.react-datepicker__day-name {
+  color: #6b7280 !important;
+  font-weight: 500 !important;
+  font-size: 12px !important;
+  width: 32px !important;
+  line-height: 32px !important;
+}
+
+.react-datepicker__month {
+  margin: 0 !important;
+  padding: 8px !important;
+}
+
+.react-datepicker__week {
+  display: flex !important;
+  justify-content: space-around !important;
+}
+
+.react-datepicker__day {
+  color: #374151 !important;
+  font-size: 13px !important;
+  width: 32px !important;
+  height: 32px !important;
+  line-height: 32px !important;
+  margin: 2px !important;
+  border-radius: 6px !important;
+  transition: all 0.15s ease !important;
+  cursor: pointer !important;
+}
+
+.react-datepicker__day:hover {
+  background-color: #f3f4f6 !important;
+  color: #111827 !important;
+}
+
+.react-datepicker__day--selected {
+  background-color: #29cc6a !important;
+  color: white !important;
+  font-weight: 600 !important;
+}
+
+.react-datepicker__day--selected:hover {
+  background-color: #22c55e !important;
+}
+
+.react-datepicker__day--keyboard-selected {
+  background-color: #dcfce7 !important;
+  color: #166534 !important;
+}
+
+.react-datepicker__day--today {
+  background-color: #fef3c7 !important;
+  color: #92400e !important;
+  font-weight: 500 !important;
+}
+
+.react-datepicker__day--today.react-datepicker__day--selected {
+  background-color: #29cc6a !important;
+  color: white !important;
+}
+
+.react-datepicker__day--outside-month {
+  color: #d1d5db !important;
+}
+
+.react-datepicker__day--disabled {
+  color: #d1d5db !important;
+  cursor: not-allowed !important;
+}
+
+.react-datepicker__day--disabled:hover {
+  background-color: transparent !important;
+}
+
+.react-datepicker__triangle {
+  display: none !important;
+}
+
+/* Hide scrollbar utility class */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Responsive utilities for better mobile experience */
+@media (max-width: 640px) {
+  .mobile-optimized {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .tablet-optimized {
+    padding: 0.75rem;
+  }
+}
