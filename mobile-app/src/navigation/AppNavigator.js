@@ -10,22 +10,14 @@ const Stack = createStackNavigator();
 export default function AppNavigator() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [userRole, setUserRoleState] = useState(null);
 
   useEffect(() => {
-    // Check if user is logged in
-    const checkAuth = async () => {
-      try {
-        const email = await getUserEmail();
-        const role = await getUserRole();
-        setIsAuthenticated(!!(email && role));
-      } catch (error) {
-        console.error('Error checking auth:', error);
-        setIsAuthenticated(false);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    checkAuth();
+    // Force app to start at Auth flow (LoginSelectionScreen) on first load
+    // Ignore any persisted session until user logs in explicitly
+    setIsAuthenticated(false);
+    setUserRoleState(null);
+    setIsLoading(false);
   }, []);
 
   // Listen for auth state changes
@@ -34,6 +26,7 @@ export default function AppNavigator() {
     const email = await getUserEmail();
     const role = await getUserRole();
     setIsAuthenticated(!!(email && role));
+    setUserRoleState(role || null);
   };
 
   // Expose update function globally (can be improved with context)
@@ -50,7 +43,9 @@ export default function AppNavigator() {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {isAuthenticated ? (
-          <Stack.Screen name="Main" component={MainNavigator} />
+          <Stack.Screen name="Main">
+            {() => <MainNavigator userRole={userRole} />}
+          </Stack.Screen>
         ) : (
           <Stack.Screen name="Auth" component={AuthNavigator} />
         )}

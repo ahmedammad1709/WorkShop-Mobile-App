@@ -56,26 +56,33 @@ export default function LoginScreen() {
         await global.updateAuthState();
       }
 
+      // Role-based redirect into MainNavigator (nested state)
+      let targetScreen = 'AdminDashboard';
       switch (roleParam) {
         case 'contractor':
-          navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
-          break;
-        case 'admin':
-          navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+          targetScreen = 'ContractorDashboard';
           break;
         case 'technician':
-          navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+          targetScreen = 'TechnicianDashboard';
           break;
         case 'supplier':
-          navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+          targetScreen = 'SupplierDashboard';
           break;
         case 'consultant':
-          navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+          targetScreen = 'ConsultantDashboard';
+          break;
+        case 'admin':
+          targetScreen = 'AdminDashboard';
           break;
         default:
+          // If role is unknown, send back to selection
           navigation.navigate('LoginSelection');
+          setSubmitting(false);
+          return;
       }
 
+      // AppNavigator will re-render to Main based on auth state; MainNavigator
+      // receives userRole and opens the correct dashboard synchronously.
       Alert.alert('Login successful');
     } catch (err) {
       setError(err.message);

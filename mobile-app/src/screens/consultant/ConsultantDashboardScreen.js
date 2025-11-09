@@ -1,11 +1,169 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { COLORS, spacing, borderRadius, commonStyles, fontSize, fontWeight } from '../../utils/styles';
-import { clearUserData } from '../../utils/storage';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  ScrollView,
+  ActivityIndicator,
+  Modal,
+  Alert,
+} from 'react-native';
+import { COLORS, spacing, borderRadius, commonStyles, fontSize, fontWeight, shadow } from '../../utils/styles';
+import { clearUserData, getUserEmail } from '../../utils/storage';
 import { useNavigation } from '@react-navigation/native';
+import { apiGet, apiPost, authAPI } from '../../utils/api';
 
 export default function ConsultantDashboardScreen() {
   const navigation = useNavigation();
+
+  // ---------- User ----------
+  const [user, setUser] = useState({ name: 'Loading...', email: '' });
+  const [userLoading, setUserLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadUser() {
+      try {
+        const email = (await getUserEmail()) || '';
+        if (!email) {
+          setUser({ name: 'Guest User', email: '' });
+          return;
+        }
+        const { ok, data } = await authAPI.getUser(email);
+        if (ok && data?.success && data.user) {
+          setUser({ name: data.user.name, email: data.user.email });
+        } else {
+          setUser({ name: 'Guest User', email });
+        }
+      } catch (e) {
+        setUser({ name: 'Guest User', email: '' });
+      } finally {
+        setUserLoading(false);
+      }
+    }
+    loadUser();
+  }, []);
+
+  // ---------- Work orders ----------
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState('');
+
+  useEffect(() => {
+    async function fetchWorkOrders() {
+      try {
+        setOrdersLoading(true);
+        setOrdersError('');
+        const { ok, data } = await apiGet('/work-orders');
+        if (!ok || !data?.success) throw new Error(data?.error || 'Failed to load work orders');
+        const mapped = (data.orders || []).map((o) => ({
+          id: o.id,
+          title: o.title || `${o.vehicle_year ? o.vehicle_year + ' ' : ''}${o.vehicle_make || ''} ${o.vehicle_model || ''}`.trim(),
+          contractor: o.created_by || '—',
+          status: normalizeStatusLabel(o.status || o.status_raw || 'pending'),
+          totalCost: Number(o.quote_total || o.charges || 0),
+          description: o.description || o.item_description || '',
+          createdAt: (() => {
+            try {
+              const d = o.created_at || o.createdAt;
+              return d ? new Date(d).toISOString().split('T')[0] : '';
+            } catch {
+              return '';
+            }
+          })(),
+        }));
+        setOrders(mapped);
+      } catch (e) {
+        console.error('Failed to load work orders', e);
+        setOrdersError(e.message || 'Failed to load work orders');
+        setOrders([]);
+      } finally {
+        setOrdersLoading(false);
+      }
+    }
+    fetchWorkOrders();
+  }, []);
+
+  // ---------- Reports ----------
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [reportType, setReportType] = useState('Summary');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    async function loadHistory() {
+      try {
+        setHistoryLoading(true);
+        const { ok, data } = await apiGet('/reports/history');
+        if (ok && data?.success && Array.isArray(data.history)) {
+          setHistory(
+            data.history.map((h) => ({
+              id: h.id || h._id || String(Math.random()),
+              type: h.type || 'Summary',
+              createdAt: h.createdAt || h.date || new Date().toISOString(),
+              range: h.range || h.period || '—',
+            }))
+          );
+        } else {
+          setHistory([]);
+        }
+      } catch (e) {
+        setHistory([]);
+      } finally {
+        setHistoryLoading(false);
+      }
+    }
+    loadHistory();
+  }, []);
+
+  // ---------- UI State ----------
+  const STATUS_LIST = ['All', 'Pending', 'In Progress', 'Finished', 'Rejected'];
+  const [search, setSearch] = useState('');
+  const [selectedTab, setSelectedTab] = useState('All');
+
+  const filteredOrders = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return orders.filter((o) => {
+      const tabOk = selectedTab === 'All' ? true : o.status === selectedTab;
+      const searchOk =
+        !q ||
+        String(o.title || '').toLowerCase().includes(q) ||
+        String(o.id || '').toLowerCase().includes(q) ||
+        String(o.contractor || '').toLowerCase().includes(q);
+      return tabOk && searchOk;
+    });
+  }, [orders, search, selectedTab]);
+
+  const stats = useMemo(() => {
+    const total = orders.length;
+    const pending = orders.filter((o) => o.status === 'Pending').length;
+    const inProgress = orders.filter((o) => o.status === 'In Progress').length;
+    const finished = orders.filter((o) => o.status === 'Finished').length;
+    return { total, pending, inProgress, finished };
+  }, [orders]);
+
+  async function generateReport() {
+    try {
+      if (!startDate || !endDate) {
+        Alert.alert('Missing Dates', 'Please provide start and end date.');
+        return;
+      }
+      const payload = { type: reportType, startDate, endDate };
+      const { ok, data } = await apiPost('/reports/generate', payload);
+      if (!ok || !data?.success) throw new Error(data?.error || 'Report generation failed');
+      Alert.alert('Report Generated', `Type: ${reportType}`);
+      setReportModalOpen(false);
+      setHistory((prev) => [
+        { id: String(Date.now()), type: reportType, createdAt: new Date().toISOString(), range: `${startDate} → ${endDate}` },
+        ...prev,
+      ]);
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Report generation failed');
+    }
+  }
 
   async function logout() {
     await clearUserData();
@@ -16,27 +174,366 @@ export default function ConsultantDashboardScreen() {
   }
 
   return (
-    <View style={[commonStyles.container, styles.container]}>
-      <Text style={styles.title}>Consultant Dashboard</Text>
-      <Text style={styles.subtitle}>This screen will mirror the web ConsultantDashboard UI.</Text>
-      <TouchableOpacity style={commonStyles.button} onPress={logout}>
-        <Text style={commonStyles.buttonText}>Logout</Text>
-      </TouchableOpacity>
-    </View>
+    <ScrollView style={commonStyles.container} contentContainerStyle={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <Text style={styles.appTitle}>Consultant Dashboard</Text>
+          <Text style={styles.subtitleText}>{userLoading ? 'Loading user…' : `Welcome, ${user.name}`}</Text>
+        </View>
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.primaryButton} onPress={() => setReportModalOpen(true)}>
+            <Text style={styles.primaryButtonText}>Generate Report</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.logoutButton} onPress={logout}>
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Stats */}
+      <View style={styles.statsRow}>
+        <StatCard label="Total" value={stats.total} />
+        <StatCard label="Pending" value={stats.pending} />
+        <StatCard label="In Progress" value={stats.inProgress} />
+        <StatCard label="Finished" value={stats.finished} />
+      </View>
+
+      {/* Search & Tabs */}
+      <View style={styles.searchTabs}>
+        <TextInput
+          placeholder="Search orders..."
+          value={search}
+          onChangeText={setSearch}
+          style={styles.searchInput}
+        />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll}>
+          {STATUS_LIST.map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.tabButton, selectedTab === t && styles.tabButtonActive]}
+              onPress={() => setSelectedTab(t)}
+            >
+              <Text style={[styles.tabText, selectedTab === t && styles.tabTextActive]}>{t}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* Orders List */}
+      <View style={styles.listContainer}>
+        {ordersLoading ? (
+          <ActivityIndicator color={COLORS.primary} />
+        ) : ordersError ? (
+          <Text style={styles.errorText}>{ordersError}</Text>
+        ) : filteredOrders.length === 0 ? (
+          <Text style={styles.emptyText}>No matching orders.</Text>
+        ) : (
+          filteredOrders.map((o) => (
+            <View key={o.id} style={styles.orderCard}>
+              <View style={styles.orderHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.orderTitle}>{o.title || `Order ${o.id}`}</Text>
+                  <Text style={styles.orderSub}>Contractor: {o.contractor}</Text>
+                </View>
+                <StatusPill status={o.status} />
+              </View>
+              <View style={styles.orderDetails}>
+                <Text style={styles.detailText}>Created: {o.createdAt || '—'}</Text>
+                {o.description ? <Text style={styles.detailText}>Desc: {o.description}</Text> : null}
+                <Text style={styles.detailText}>Total Cost: ${o.totalCost.toFixed(2)}</Text>
+              </View>
+            </View>
+          ))
+        )}
+      </View>
+
+      {/* Report History */}
+      <View style={styles.historySection}>
+        <Text style={styles.sectionTitle}>Report History</Text>
+        {historyLoading ? (
+          <ActivityIndicator color={COLORS.primary} />
+        ) : history.length === 0 ? (
+          <Text style={styles.emptyText}>No reports yet.</Text>
+        ) : (
+          history.map((h) => (
+            <View key={h.id} style={styles.historyItem}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.historyTitle}>{h.type}</Text>
+                <Text style={styles.historySub}>Range: {h.range}</Text>
+              </View>
+              <Text style={styles.historyDate}>{formatDate(h.createdAt)}</Text>
+            </View>
+          ))
+        )}
+      </View>
+
+      {/* Report Modal */}
+      <Modal visible={reportModalOpen} transparent animationType="fade" onRequestClose={() => setReportModalOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Generate Report</Text>
+            <View style={{ gap: spacing.sm }}>
+              <Text style={styles.detailText}>Type</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {['Summary', 'Detailed', 'Invoices'].map((t) => (
+                  <TouchableOpacity
+                    key={t}
+                    style={[styles.tabButton, reportType === t && styles.tabButtonActive]}
+                    onPress={() => setReportType(t)}
+                  >
+                    <Text style={[styles.tabText, reportType === t && styles.tabTextActive]}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+            <Text style={styles.detailText}>Start Date (YYYY-MM-DD)</Text>
+            <TextInput value={startDate} onChangeText={setStartDate} style={styles.searchInput} placeholder="2025-01-01" />
+            <Text style={styles.detailText}>End Date (YYYY-MM-DD)</Text>
+            <TextInput value={endDate} onChangeText={setEndDate} style={styles.searchInput} placeholder="2025-01-31" />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => setReportModalOpen(false)}>
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.primaryButton} onPress={generateReport}>
+                <Text style={styles.primaryButtonText}>Generate</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     padding: spacing.lg,
-    gap: spacing.md,
+    gap: spacing.lg,
+    backgroundColor: COLORS.background,
   },
-  title: {
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerLeft: {
+    gap: spacing.xs,
+  },
+  appTitle: {
     fontSize: fontSize['2xl'],
     fontWeight: fontWeight.semibold,
     color: COLORS.text,
   },
-  subtitle: {
+  subtitleText: {
     color: COLORS.textSecondary,
   },
+  headerRight: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  logoutButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: borderRadius.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  logoutText: {
+    color: COLORS.white,
+    fontWeight: fontWeight.medium,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    alignItems: 'center',
+    ...shadow.md,
+  },
+  statLabel: {
+    color: COLORS.textSecondary,
+  },
+  statValue: {
+    color: COLORS.text,
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+  },
+  searchTabs: {
+    gap: spacing.md,
+  },
+  searchInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: COLORS.white,
+  },
+  tabsScroll: {
+    marginTop: spacing.xs,
+  },
+  tabButton: {
+    backgroundColor: COLORS.white,
+    borderRadius: borderRadius.full,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    marginRight: spacing.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  tabButtonActive: {
+    backgroundColor: COLORS.primaryLight,
+    borderColor: COLORS.primary,
+  },
+  tabText: {
+    color: COLORS.text,
+  },
+  tabTextActive: {
+    color: COLORS.primary,
+    fontWeight: fontWeight.semibold,
+  },
+  listContainer: {
+    gap: spacing.md,
+  },
+  orderCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    ...shadow.md,
+  },
+  orderHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  orderTitle: {
+    color: COLORS.text,
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+  },
+  orderSub: {
+    color: COLORS.textSecondary,
+  },
+  orderDetails: {
+    gap: spacing.xs,
+  },
+  detailText: {
+    color: COLORS.text,
+  },
+  historySection: {
+    gap: spacing.sm,
+  },
+  sectionTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+    color: COLORS.text,
+  },
+  historyItem: {
+    backgroundColor: COLORS.white,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    ...shadow.sm,
+  },
+  historyTitle: {
+    color: COLORS.text,
+    fontWeight: fontWeight.semibold,
+  },
+  historySub: {
+    color: COLORS.textSecondary,
+  },
+  historyDate: {
+    color: COLORS.textSecondary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: COLORS.modalOverlay,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: COLORS.white,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  modalTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.semibold,
+    color: COLORS.text,
+  },
+  primaryButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: borderRadius.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  primaryButtonText: {
+    color: COLORS.white,
+    fontWeight: fontWeight.medium,
+  },
+  secondaryButton: {
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: borderRadius.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  secondaryButtonText: {
+    color: COLORS.text,
+  },
 });
+
+// Helpers
+function normalizeStatusLabel(raw) {
+  const s = String(raw || '').toLowerCase();
+  if (s.includes('pending')) return 'Pending';
+  if (s.includes('progress')) return 'In Progress';
+  if (s.includes('finish')) return 'Finished';
+  if (s.includes('reject')) return 'Rejected';
+  return 'Pending';
+}
+
+function StatCard({ label, value }) {
+  return (
+    <View style={styles.statCard}>
+      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={styles.statValue}>{value}</Text>
+    </View>
+  );
+}
+
+function StatusPill({ status }) {
+  const map = {
+    Pending: { bg: '#E5E7EB', text: '#374151' },
+    'In Progress': { bg: '#FEF3C7', text: '#92400E' },
+    Finished: { bg: '#DCFCE7', text: '#065F46' },
+    Rejected: { bg: '#FECACA', text: '#7F1D1D' },
+  };
+  const c = map[status] || map['Pending'];
+  return (
+    <View style={{ backgroundColor: c.bg, borderRadius: borderRadius.full, paddingVertical: spacing.xs, paddingHorizontal: spacing.md }}>
+      <Text style={{ color: c.text, fontSize: fontSize.sm }}>{status}</Text>
+    </View>
+  );
+}
+
+function formatDate(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toISOString().split('T')[0];
+  } catch {
+    return String(iso);
+  }
+}

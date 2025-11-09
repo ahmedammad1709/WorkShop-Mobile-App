@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo } from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
-import { getUserRole } from '../utils/storage';
 
 import AdminDashboardScreen from '../screens/admin/AdminDashboardScreen';
 import ContractorDashboardScreen from '../screens/contractor/ContractorDashboardScreen';
@@ -13,38 +12,24 @@ import UserManagementScreen from '../screens/admin/UserManagementScreen';
 
 const Stack = createStackNavigator();
 
-export default function MainNavigator() {
-  const [initialRoute, setInitialRoute] = useState('AdminDashboard');
-
-  useEffect(() => {
-    // Determine initial route based on user role
-    const loadInitialRoute = async () => {
-      const role = await getUserRole();
-      if (role) {
-        const roleLower = role.toLowerCase();
-        switch (roleLower) {
-          case 'admin':
-            setInitialRoute('AdminDashboard');
-            break;
-          case 'contractor':
-            setInitialRoute('ContractorDashboard');
-            break;
-          case 'technician':
-            setInitialRoute('TechnicianDashboard');
-            break;
-          case 'supplier':
-            setInitialRoute('SupplierDashboard');
-            break;
-          case 'consultant':
-            setInitialRoute('ConsultantDashboard');
-            break;
-          default:
-            setInitialRoute('AdminDashboard');
-        }
-      }
-    };
-    loadInitialRoute();
-  }, []);
+export default function MainNavigator({ userRole }) {
+  const initialRoute = useMemo(() => {
+    const roleLower = (userRole || '').toLowerCase();
+    switch (roleLower) {
+      case 'admin':
+        return 'AdminDashboard';
+      case 'contractor':
+        return 'ContractorDashboard';
+      case 'technician':
+        return 'TechnicianDashboard';
+      case 'supplier':
+        return 'SupplierDashboard';
+      case 'consultant':
+        return 'ConsultantDashboard';
+      default:
+        return 'AdminDashboard';
+    }
+  }, [userRole]);
 
   return (
     <Stack.Navigator
