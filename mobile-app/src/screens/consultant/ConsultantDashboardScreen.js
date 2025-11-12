@@ -15,7 +15,7 @@ import { clearUserData, getUserEmail } from '../../utils/storage';
 import { useNavigation } from '@react-navigation/native';
 import { apiGet, apiPost, authAPI } from '../../utils/api';
 
-export default function ConsultantDashboardScreen() {
+export default function ContractorDashboardScreen() {
   const navigation = useNavigation();
 
   // ---------- User ----------
@@ -260,7 +260,7 @@ export default function ConsultantDashboardScreen() {
             <View key={h.id} style={styles.historyItem}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.historyTitle}>{h.type}</Text>
-                <Text style={styles.historySub}>Range: {h.range}</Text>
+                <Text style={styles.historySub}>{h.range}</Text>
               </View>
               <Text style={styles.historyDate}>{formatDate(h.createdAt)}</Text>
             </View>
@@ -273,30 +273,20 @@ export default function ConsultantDashboardScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Generate Report</Text>
-            <View style={{ gap: spacing.sm }}>
-              <Text style={styles.detailText}>Type</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {['Summary', 'Detailed', 'Invoices'].map((t) => (
-                  <TouchableOpacity
-                    key={t}
-                    style={[styles.tabButton, reportType === t && styles.tabButtonActive]}
-                    onPress={() => setReportType(t)}
-                  >
-                    <Text style={[styles.tabText, reportType === t && styles.tabTextActive]}>{t}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-            <Text style={styles.detailText}>Start Date (YYYY-MM-DD)</Text>
-            <TextInput value={startDate} onChangeText={setStartDate} style={styles.searchInput} placeholder="2025-01-01" />
-            <Text style={styles.detailText}>End Date (YYYY-MM-DD)</Text>
-            <TextInput value={endDate} onChangeText={setEndDate} style={styles.searchInput} placeholder="2025-01-31" />
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => setReportModalOpen(false)}>
-                <Text style={styles.secondaryButtonText}>Cancel</Text>
-              </TouchableOpacity>
+            <TextInput
+              placeholder="Report type (e.g., Summary)"
+              value={reportType}
+              onChangeText={setReportType}
+              style={styles.searchInput}
+            />
+            <TextInput placeholder="Start date (YYYY-MM-DD)" value={startDate} onChangeText={setStartDate} style={styles.searchInput} />
+            <TextInput placeholder="End date (YYYY-MM-DD)" value={endDate} onChangeText={setEndDate} style={styles.searchInput} />
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
               <TouchableOpacity style={styles.primaryButton} onPress={generateReport}>
                 <Text style={styles.primaryButtonText}>Generate</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => setReportModalOpen(false)}>
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -493,15 +483,19 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: COLORS.text,
   },
+  errorText: {
+    color: COLORS.error,
+  },
+  emptyText: {
+    color: COLORS.textSecondary,
+  },
 });
 
-// Helpers
 function normalizeStatusLabel(raw) {
-  const s = String(raw || '').toLowerCase();
-  if (s.includes('pending')) return 'Pending';
-  if (s.includes('progress')) return 'In Progress';
-  if (s.includes('finish')) return 'Finished';
-  if (s.includes('reject')) return 'Rejected';
+  const v = String(raw || '').toLowerCase();
+  if (v.includes('progress')) return 'In Progress';
+  if (v.includes('finish') || v.includes('done') || v.includes('completed')) return 'Finished';
+  if (v.includes('reject') || v.includes('cancel')) return 'Rejected';
   return 'Pending';
 }
 
@@ -509,22 +503,22 @@ function StatCard({ label, value }) {
   return (
     <View style={styles.statCard}>
       <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statValue}>{String(value)}</Text>
     </View>
   );
 }
 
 function StatusPill({ status }) {
   const map = {
-    Pending: { bg: '#E5E7EB', text: '#374151' },
-    'In Progress': { bg: '#FEF3C7', text: '#92400E' },
-    Finished: { bg: '#DCFCE7', text: '#065F46' },
-    Rejected: { bg: '#FECACA', text: '#7F1D1D' },
+    Pending: { bg: COLORS.yellowLight, text: COLORS.yellowDark },
+    'In Progress': { bg: COLORS.blueLight, text: COLORS.blueDark },
+    Finished: { bg: COLORS.greenLight, text: COLORS.greenDark },
+    Rejected: { bg: COLORS.redLight, text: COLORS.redDark },
   };
-  const c = map[status] || map['Pending'];
+  const s = map[status] || { bg: COLORS.border, text: COLORS.text };
   return (
-    <View style={{ backgroundColor: c.bg, borderRadius: borderRadius.full, paddingVertical: spacing.xs, paddingHorizontal: spacing.md }}>
-      <Text style={{ color: c.text, fontSize: fontSize.sm }}>{status}</Text>
+    <View style={{ backgroundColor: s.bg, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.full }}>
+      <Text style={{ color: s.text }}>{status}</Text>
     </View>
   );
 }
@@ -534,6 +528,6 @@ function formatDate(iso) {
     const d = new Date(iso);
     return d.toISOString().split('T')[0];
   } catch {
-    return String(iso);
+    return String(iso || '');
   }
 }

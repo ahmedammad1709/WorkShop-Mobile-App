@@ -99,6 +99,9 @@ export default function SupplierDashboardScreen() {
     { id: 3, title: 'Price change requested for Steering Repair', time: 'Yesterday', read: true },
   ]);
   const [notifOpen, setNotifOpen] = useState(false);
+  const markAllRead = () => setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  const clearNotifications = () => setNotifications([]);
+  const markNotificationRead = (id) => setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
 
   // ---------- UI State ----------
   const [search, setSearch] = useState('');
@@ -109,6 +112,12 @@ export default function SupplierDashboardScreen() {
   const [priceModalOpen, setPriceModalOpen] = useState(false);
   const [editingService, setEditingService] = useState(null);
   const [editingPrice, setEditingPrice] = useState('');
+  // Services state
+  const [services, setServices] = useState(DEFAULT_SERVICES);
+  // Add Service modal
+  const [addServiceOpen, setAddServiceOpen] = useState(false);
+  const [newServiceName, setNewServiceName] = useState('');
+  const [newServicePrice, setNewServicePrice] = useState('');
 
   // Invoice modal
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
@@ -116,6 +125,11 @@ export default function SupplierDashboardScreen() {
 
   // Status changer highlight
   const [activeStatusChanger, setActiveStatusChanger] = useState(null);
+  // Approve confirmation modal
+  const [approveModal, setApproveModal] = useState({ open: false, order: null, loading: false, error: '' });
+  const openApproveModal = (order) => setApproveModal({ open: true, order, loading: false, error: '' });
+  const closeApproveModal = () => setApproveModal({ open: false, order: null, loading: false, error: '' });
+  const STATUS_CYCLE = ['Sent', 'In Progress', 'Finished', 'Contractor'];
 
   const STATUS_LIST = ['All', 'Sent', 'In Progress', 'Finished', 'Contractor'];
 
@@ -149,6 +163,22 @@ export default function SupplierDashboardScreen() {
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o)));
   }
 
+  function cycleStatusUp(orderId) {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+    const idx = STATUS_CYCLE.indexOf(order.status);
+    const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
+    changeOrderStatus(orderId, next);
+  }
+
+  function cycleStatusDown(orderId) {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+    const idx = STATUS_CYCLE.indexOf(order.status);
+    const prev = idx === 0 ? STATUS_CYCLE[STATUS_CYCLE.length - 1] : STATUS_CYCLE[idx - 1];
+    changeOrderStatus(orderId, prev);
+  }
+
   function openInvoice(order) {
     setInvoiceOrder(order);
     setInvoiceModalOpen(true);
@@ -163,13 +193,15 @@ export default function SupplierDashboardScreen() {
   async function performApprove(order) {
     if (!order) return;
     try {
+      setApproveModal((s) => ({ ...s, loading: true, error: '' }));
       const supplierEmail = (user?.email || (await getUserEmail()) || '').trim();
       const { ok, data } = await apiPut(`/work-orders/${order.id}/approve`, { supplier_email: supplierEmail });
       if (!ok || !data?.success) throw new Error(data?.error || 'Approval failed');
       setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, status: 'In Progress', supplier_email: supplierEmail } : o)));
+      closeApproveModal();
       Alert.alert('Approved', `Order ${order.id} moved to In Progress.`);
     } catch (e) {
-      Alert.alert('Error', e.message || 'Approval failed');
+      setApproveModal((s) => ({ ...s, loading: false, error: e.message || 'Approval failed' }));
     }
   }
 
@@ -180,6 +212,8 @@ export default function SupplierDashboardScreen() {
     }
     navigation.reset({ index: 0, routes: [{ name: 'Auth' }] });
   }
+
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
   return (
     <ScrollView style={commonStyles.container} contentContainerStyle={styles.container}>
@@ -193,7 +227,7 @@ export default function SupplierDashboardScreen() {
           <TouchableOpacity style={styles.notifButton} onPress={() => setNotifOpen(true)}>
             <Text style={styles.notifText}>Notifications ({notifications.filter(n => !n.read).length})</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.logoutButton} onPress={logout}>
+          <TouchableOpacity style={styles.logoutButton} onPress={() => setLogoutOpen(true)}>
             <Text style={styles.logoutText}>Logout</Text>
           </TouchableOpacity>
         </View>
@@ -245,7 +279,19 @@ export default function SupplierDashboardScreen() {
                   <Text style={styles.orderSub}>{o.details || '—'}</Text>
                 </View>
                 <View style={styles.orderHeaderRight}>
-                  <StatusPill status={o.status} />
+                  <TouchableOpacity onPress={() => setActiveStatusChanger(activeStatusChanger === o.id ? null : o.id)}>
+                    <StatusPill status={o.status} />
+                  </TouchableOpacity>
+                  {activeStatusChanger === o.id && (
+                    <View style={styles.statusChangerWrap}>
+                      <TouchableOpacity style={styles.statusArrowBtn} onPress={() => cycleStatusUp(o.id)}>
+                        <Text style={styles.statusArrowText}>▲</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.statusArrowBtn} onPress={() => cycleStatusDown(o.id)}>
+                        <Text style={styles.statusArrowText}>▼</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                   <TouchableOpacity style={styles.smallButton} onPress={() => setExpandedOrderId(expandedOrderId === o.id ? null : o.id)}>
                     <Text style={styles.smallButtonText}>{expandedOrderId === o.id ? 'Hide' : 'Details'}</Text>
                   </TouchableOpacity>
@@ -257,13 +303,73 @@ export default function SupplierDashboardScreen() {
                   <Text style={styles.detailText}>Contractor: {o.contractor}</Text>
                   <Text style={styles.detailText}>Start Date: {o.startDate || '—'}</Text>
                   <Text style={styles.detailText}>Total Cost: ${o.totalCost.toFixed(2)}</Text>
-                  {o.item_description ? (
-                    <Text style={styles.detailText}>Item: {o.item_description}</Text>
+                  {o.supply_item ? (
+                    <View style={{ marginTop: spacing.xs }}>
+                      <Text style={[styles.detailText, { fontWeight: fontWeight.semibold }]}>Supplier Assignment</Text>
+                      <Text style={styles.detailText}>Item: {o.supply_item}</Text>
+                      {o.item_description ? (
+                        <Text style={styles.detailText}>Description: {o.item_description}</Text>
+                      ) : null}
+                    </View>
                   ) : null}
+                  {o.paint_codes_json ? (
+                    <View style={{ marginTop: spacing.xs }}>
+                      <Text style={[styles.detailText, { fontWeight: fontWeight.semibold }]}>Paint Codes</Text>
+                      {(() => {
+                        try {
+                          const paintCodes = typeof o.paint_codes_json === 'string' ? JSON.parse(o.paint_codes_json) : o.paint_codes_json;
+                          if (Array.isArray(paintCodes) && paintCodes.length > 0) {
+                            return (
+                              <View style={{ marginTop: 4 }}>
+                                {paintCodes.map((paint, idx) => (
+                                  <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                                    <Text style={styles.detailText}>{paint.code}</Text>
+                                    <Text style={styles.detailText}>Qty: {paint.quantity}</Text>
+                                    {paint.triStage ? (
+                                      <View style={{ backgroundColor: '#FDE68A', borderRadius: borderRadius.full, paddingVertical: 2, paddingHorizontal: 6 }}>
+                                        <Text style={{ color: '#92400E', fontSize: fontSize.xs }}>Tri Stage</Text>
+                                      </View>
+                                    ) : null}
+                                  </View>
+                                ))}
+                              </View>
+                            );
+                          }
+                          return <Text style={styles.detailText}>No paint codes available</Text>;
+                        } catch (e) {
+                          return <Text style={[styles.detailText, styles.errorText]}>Invalid paint code data</Text>;
+                        }
+                      })()}
+                    </View>
+                  ) : null}
+                  <View style={{ marginTop: spacing.xs }}>
+                    <Text style={[styles.detailText, { fontWeight: fontWeight.semibold }]}>Services</Text>
+                    {Array.isArray(o.services) && o.services.length > 0 ? (
+                      <View style={{ marginTop: 4 }}>
+                        {o.services.map((s) => {
+                          const match = services.find((srv) => srv.id === s.id) || s;
+                          return (
+                            <View key={s.id} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                              <Text style={styles.detailText}>{match.name}</Text>
+                              <Text style={styles.detailText}>${Number(match.price || 0).toFixed(2)}</Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ) : (
+                      <Text style={styles.detailText}>No services attached.</Text>
+                    )}
+                  </View>
                   <View style={styles.actionsRow}>
-                    <TouchableOpacity style={styles.primaryButton} onPress={() => performApprove(o)}>
-                      <Text style={styles.primaryButtonText}>Approve</Text>
-                    </TouchableOpacity>
+                    {o.supplier_email ? (
+                      <View style={[styles.secondaryButton, { backgroundColor: '#059669' }]}> 
+                        <Text style={[styles.secondaryButtonText, { color: COLORS.white }]}>Approved</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity style={styles.primaryButton} onPress={() => openApproveModal(o)}>
+                        <Text style={styles.primaryButtonText}>Approve</Text>
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity style={styles.secondaryButton} onPress={() => openInvoice(o)}>
                       <Text style={styles.secondaryButtonText}>Invoice</Text>
                     </TouchableOpacity>
@@ -277,13 +383,19 @@ export default function SupplierDashboardScreen() {
 
       {/* Services Section */}
       <View style={styles.servicesSection}>
-        <Text style={styles.sectionTitle}>Services / Price List</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={styles.sectionTitle}>Services / Price List</Text>
+          <TouchableOpacity style={styles.primaryButton} onPress={() => setAddServiceOpen(true)}>
+            <Text style={styles.primaryButtonText}>Add Service</Text>
+          </TouchableOpacity>
+        </View>
         <View style={styles.servicesGrid}>
-          {DEFAULT_SERVICES.map((s) => (
+          {services.map((s) => (
             <View key={s.id} style={styles.serviceItem}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.serviceName}>{s.name}</Text>
                 <Text style={styles.servicePrice}>${s.price}</Text>
+                <Text style={styles.serviceMeta}>#{s.id}</Text>
               </View>
               <TouchableOpacity style={styles.smallButton} onPress={() => openModifyPrice(s)}>
                 <Text style={styles.smallButtonText}>Modify</Text>
@@ -297,12 +409,27 @@ export default function SupplierDashboardScreen() {
       <Modal visible={notifOpen} transparent animationType="fade" onRequestClose={() => setNotifOpen(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Notifications</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.modalTitle}>Notifications</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                <TouchableOpacity style={styles.secondaryButton} onPress={markAllRead}>
+                  <Text style={styles.secondaryButtonText}>Mark All Read</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondaryButton} onPress={clearNotifications}>
+                  <Text style={styles.secondaryButtonText}>Clear</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
             <ScrollView style={{ maxHeight: 300 }}>
               {notifications.map((n) => (
                 <View key={n.id} style={styles.notificationItem}>
                   <Text style={styles.notificationTitle}>{n.title}</Text>
                   <Text style={styles.notificationTime}>{n.time}</Text>
+                  {!n.read && (
+                    <TouchableOpacity style={[styles.smallButton, { marginTop: spacing.xs }]} onPress={() => markNotificationRead(n.id)}>
+                      <Text style={styles.smallButtonText}>Mark</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               ))}
             </ScrollView>
@@ -310,14 +437,8 @@ export default function SupplierDashboardScreen() {
               <TouchableOpacity style={styles.secondaryButton} onPress={() => setNotifOpen(false)}>
                 <Text style={styles.secondaryButtonText}>Close</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.primaryButton}
-                onPress={() => {
-                  setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-                  setNotifOpen(false);
-                }}
-              >
-                <Text style={styles.primaryButtonText}>Mark All Read</Text>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => setNotifOpen(false)}>
+                <Text style={styles.primaryButtonText}>Done</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -344,11 +465,80 @@ export default function SupplierDashboardScreen() {
               <TouchableOpacity
                 style={styles.primaryButton}
                 onPress={() => {
-                  Alert.alert('Updated', `Price for ${editingService?.name} set to $${editingPrice}`);
+                  const parsed = parseFloat(editingPrice);
+                  if (isNaN(parsed) || parsed < 0) {
+                    Alert.alert('Invalid price', 'Please enter a valid non-negative number.');
+                    return;
+                  }
+                  // Update services state
+                  setServices((prev) => prev.map((srv) => (srv.id === editingService.id ? { ...srv, price: parsed } : srv)));
+                  // Optionally reflect price change in orders that reference this service id
+                  setOrders((prev) => prev.map((o) => {
+                    const has = Array.isArray(o.services) && o.services.some((sv) => sv.id === editingService.id);
+                    if (!has) return o;
+                    const newTotal = o.services.reduce((sum, sv) => {
+                      const match = sv.id && services.find((s) => s.id === sv.id);
+                      const newPrice = sv.id === editingService.id ? parsed : (match?.price ?? sv.price ?? 0);
+                      return sum + Number(newPrice || 0);
+                    }, 0);
+                    return { ...o, totalCost: newTotal };
+                  }));
+                  Alert.alert('Updated', `Price for ${editingService?.name} set to $${parsed.toFixed(2)}`);
                   setPriceModalOpen(false);
+                  setEditingService(null);
+                  setEditingPrice('');
                 }}
               >
                 <Text style={styles.primaryButtonText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Add Service Modal */}
+      <Modal visible={addServiceOpen} transparent animationType="fade" onRequestClose={() => setAddServiceOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Add Service</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Service name (e.g. Oil Change)"
+              value={newServiceName}
+              onChangeText={setNewServiceName}
+            />
+            <TextInput
+              style={styles.searchInput}
+              keyboardType="numeric"
+              placeholder="Price"
+              value={newServicePrice}
+              onChangeText={setNewServicePrice}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => setAddServiceOpen(false)}>
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={() => {
+                  const name = newServiceName.trim();
+                  const price = parseFloat(newServicePrice);
+                  if (!name) {
+                    Alert.alert('Validation', 'Please enter a service name.');
+                    return;
+                  }
+                  if (isNaN(price) || price < 0) {
+                    Alert.alert('Validation', 'Please enter a valid price.');
+                    return;
+                  }
+                  const id = `S${String(Math.floor(Math.random() * 10000)).padStart(2, '0')}`;
+                  setServices((prev) => [...prev, { id, name, price }]);
+                  setAddServiceOpen(false);
+                  setNewServiceName('');
+                  setNewServicePrice('');
+                }}
+              >
+                <Text style={styles.primaryButtonText}>Add</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -362,9 +552,47 @@ export default function SupplierDashboardScreen() {
             <Text style={styles.modalTitle}>Invoice Preview</Text>
             {invoiceOrder ? (
               <View style={{ gap: spacing.sm }}>
-                <Text style={styles.detailText}>Order: {invoiceOrder.id}</Text>
-                <Text style={styles.detailText}>Title: {invoiceOrder.title}</Text>
-                <Text style={styles.detailText}>Total: ${invoiceOrder.totalCost.toFixed(2)}</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <View>
+                    <Text style={styles.detailText}>Contractor</Text>
+                    <Text style={[styles.detailText, { fontWeight: fontWeight.semibold }]}>{invoiceOrder.contractor}</Text>
+                  </View>
+                  <View>
+                    <Text style={styles.detailText}>Service Date</Text>
+                    <Text style={[styles.detailText, { fontWeight: fontWeight.semibold }]}>{invoiceOrder.startDate || '—'}</Text>
+                  </View>
+                </View>
+                <Text style={[styles.detailText, { fontWeight: fontWeight.semibold, marginTop: spacing.sm }]}>Work order: {invoiceOrder.id}</Text>
+                {invoiceOrder?.supply_item ? (
+                  <View style={{ marginTop: spacing.xs }}>
+                    <Text style={[styles.detailText, { fontWeight: fontWeight.semibold }]}>Supplier Assignment</Text>
+                    <Text style={styles.detailText}>Item: {invoiceOrder.supply_item}</Text>
+                    {invoiceOrder.item_description ? (
+                      <Text style={styles.detailText}>Description: {invoiceOrder.item_description}</Text>
+                    ) : null}
+                  </View>
+                ) : null}
+                <View style={{ marginTop: spacing.sm }}>
+                  <Text style={[styles.detailText, { fontWeight: fontWeight.semibold }]}>Services</Text>
+                  {Array.isArray(invoiceOrder.services) && invoiceOrder.services.length > 0 ? (
+                    <View style={{ marginTop: 4 }}>
+                      {invoiceOrder.services.map((s) => {
+                        const srv = services.find((ss) => ss.id === s.id) || s;
+                        return (
+                          <View key={s.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+                            <Text style={styles.detailText}>{srv.name}</Text>
+                            <Text style={[styles.detailText, { fontWeight: fontWeight.semibold }]}>${Number(srv.price || 0).toFixed(2)}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : (
+                    <Text style={styles.detailText}>No services attached.</Text>
+                  )}
+                </View>
+                <View style={{ alignItems: 'flex-end', marginTop: spacing.sm }}>
+                  <Text style={[styles.detailText, { fontWeight: fontWeight.semibold }]}>Total due: ${invoiceOrder.totalCost.toFixed(2)}</Text>
+                </View>
               </View>
             ) : (
               <Text style={styles.detailText}>No order selected.</Text>
@@ -375,6 +603,43 @@ export default function SupplierDashboardScreen() {
               </TouchableOpacity>
               <TouchableOpacity style={styles.primaryButton} onPress={() => Alert.alert('Invoice', 'Download not implemented in mobile preview.')}>
                 <Text style={styles.primaryButtonText}>Download</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Approve Confirmation Modal */}
+      <Modal visible={approveModal.open} transparent animationType="fade" onRequestClose={closeApproveModal}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Confirm Approval</Text>
+            <Text style={styles.detailText}>Approve this work order? Your email will be recorded.</Text>
+            {approveModal.error ? <Text style={[styles.errorText]}>{approveModal.error}</Text> : null}
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.secondaryButton} onPress={closeApproveModal} disabled={approveModal.loading}>
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => performApprove(approveModal.order)} disabled={approveModal.loading}>
+                <Text style={styles.primaryButtonText}>{approveModal.loading ? 'Confirming…' : 'Confirm'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Logout Confirmation Modal */}
+      <Modal visible={logoutOpen} transparent animationType="fade" onRequestClose={() => setLogoutOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Confirm Logout</Text>
+            <Text style={styles.detailText}>Are you sure you want to logout? You will need to sign in again.</Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => setLogoutOpen(false)}>
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.primaryButton} onPress={logout}>
+                <Text style={styles.primaryButtonText}>Logout</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -502,6 +767,24 @@ const styles = StyleSheet.create({
   orderHeaderRight: {
     gap: spacing.sm,
     alignItems: 'flex-end',
+  },
+  statusChangerWrap: {
+    flexDirection: 'column',
+    gap: 4,
+  },
+  statusArrowBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+  },
+  statusArrowText: {
+    color: COLORS.white,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    lineHeight: 18,
   },
   orderTitle: {
     color: COLORS.text,
