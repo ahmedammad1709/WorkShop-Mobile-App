@@ -15,7 +15,7 @@ import { clearUserData, getUserEmail } from '../../utils/storage';
 import { useNavigation } from '@react-navigation/native';
 import { apiGet, apiPost, authAPI } from '../../utils/api';
 
-export default function ContractorDashboardScreen() {
+export default function ConsultantDashboardScreen() {
   const navigation = useNavigation();
 
   // ---------- User ----------
@@ -88,10 +88,16 @@ export default function ContractorDashboardScreen() {
   // ---------- Reports ----------
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [reportType, setReportType] = useState('Summary');
+  const [vendor, setVendor] = useState('');
+  const [orderNumber, setOrderNumber] = useState('');
+  const [vinFilter, setVinFilter] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [loadingExport, setLoadingExport] = useState(false);
 
   useEffect(() => {
     async function loadHistory() {
@@ -151,18 +157,57 @@ export default function ContractorDashboardScreen() {
         Alert.alert('Missing Dates', 'Please provide start and end date.');
         return;
       }
-      const payload = { type: reportType, startDate, endDate };
-      const { ok, data } = await apiPost('/reports/generate', payload);
+      const params = new URLSearchParams();
+      if (vendor && vendor.trim() !== '') params.set('supplier_email', vendor.trim());
+      if (orderNumber && String(orderNumber).trim() !== '') params.set('order_number', String(orderNumber).trim());
+      if (vinFilter && vinFilter.trim() !== '') params.set('vin', vinFilter.trim());
+      params.set('date_from', startDate);
+      params.set('date_to', endDate);
+      const { ok, data } = await apiGet(`/work-orders/search?${params.toString()}`);
       if (!ok || !data?.success) throw new Error(data?.error || 'Report generation failed');
-      Alert.alert('Report Generated', `Type: ${reportType}`);
+      const ordersData = Array.isArray(data.orders) ? data.orders : [];
+      const newReport = {
+        id: String(Date.now()),
+        type: reportType,
+        createdAt: new Date().toISOString(),
+        range: `${startDate} → ${endDate}`,
+        data: ordersData,
+      };
+      setHistory((prev) => [newReport, ...prev]);
+      setSelectedReport(newReport);
       setReportModalOpen(false);
-      setHistory((prev) => [
-        { id: String(Date.now()), type: reportType, createdAt: new Date().toISOString(), range: `${startDate} → ${endDate}` },
-        ...prev,
-      ]);
+      setViewModalOpen(true);
     } catch (e) {
       Alert.alert('Error', e.message || 'Report generation failed');
     }
+  }
+
+  function exportReportPDF() {
+    if (!selectedReport) {
+      Alert.alert('No Report', 'Select or generate a report first.');
+      return;
+    }
+    setLoadingExport(true);
+    setTimeout(() => {
+      setLoadingExport(false);
+      Alert.alert('Export PDF', 'PDF export is not available on mobile yet.');
+    }, 300);
+  }
+
+  function exportReportExcel() {
+    if (!selectedReport) {
+      Alert.alert('No Report', 'Select or generate a report first.');
+      return;
+    }
+    setLoadingExport(true);
+    setTimeout(() => {
+      setLoadingExport(false);
+      Alert.alert('Export Excel', 'Excel export is not available on mobile yet.');
+    }, 300);
+  }
+
+  function printReport() {
+    Alert.alert('Print', 'Use Export PDF to print from your device.');
   }
 
   async function logout() {
@@ -181,15 +226,15 @@ export default function ContractorDashboardScreen() {
           <Text style={styles.appTitle}>Consultant Dashboard</Text>
           <Text style={styles.subtitleText}>{userLoading ? 'Loading user…' : `Welcome, ${user.name}`}</Text>
         </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.primaryButton} onPress={() => setReportModalOpen(true)}>
-            <Text style={styles.primaryButtonText}>Generate Report</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.logoutButton} onPress={logout}>
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
-        </View>
+      <View style={styles.headerRight}>
+        <TouchableOpacity style={styles.primaryButton} onPress={() => setReportModalOpen(true)}>
+          <Text style={styles.primaryButtonText}>Generate Report</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.logoutButton} onPress={logout}>
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
       </View>
+    </View>
 
       {/* Stats */}
       <View style={styles.statsRow}>
@@ -262,7 +307,9 @@ export default function ContractorDashboardScreen() {
                 <Text style={styles.historyTitle}>{h.type}</Text>
                 <Text style={styles.historySub}>{h.range}</Text>
               </View>
-              <Text style={styles.historyDate}>{formatDate(h.createdAt)}</Text>
+              <TouchableOpacity onPress={() => { setSelectedReport(h); setViewModalOpen(true); }}>
+                <Text style={[styles.historyDate, { color: COLORS.primary }]}>Open</Text>
+              </TouchableOpacity>
             </View>
           ))
         )}
@@ -279,6 +326,9 @@ export default function ContractorDashboardScreen() {
               onChangeText={setReportType}
               style={styles.searchInput}
             />
+            <TextInput placeholder="Vendor email" value={vendor} onChangeText={setVendor} style={styles.searchInput} />
+            <TextInput placeholder="Order number" value={orderNumber} onChangeText={setOrderNumber} style={styles.searchInput} />
+            <TextInput placeholder="VIN" value={vinFilter} onChangeText={setVinFilter} style={styles.searchInput} />
             <TextInput placeholder="Start date (YYYY-MM-DD)" value={startDate} onChangeText={setStartDate} style={styles.searchInput} />
             <TextInput placeholder="End date (YYYY-MM-DD)" value={endDate} onChangeText={setEndDate} style={styles.searchInput} />
             <View style={{ flexDirection: 'row', gap: spacing.md }}>
@@ -290,6 +340,65 @@ export default function ContractorDashboardScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* Report View Modal */}
+      <Modal visible={viewModalOpen} transparent animationType="fade" onRequestClose={() => setViewModalOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <ScrollView contentContainerStyle={styles.modalCard}>
+            <Text style={styles.modalTitle}>Report Preview</Text>
+            {selectedReport ? (
+              <View style={{ gap: spacing.md }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={styles.sectionTitle}>Records: {Array.isArray(selectedReport.data) ? selectedReport.data.length : 0}</Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <TouchableOpacity onPress={exportReportPDF} style={styles.secondaryButton}>
+                      <Text style={styles.secondaryButtonText}>{loadingExport ? 'Processing…' : 'Export PDF'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={exportReportExcel} style={styles.secondaryButton}>
+                      <Text style={styles.secondaryButtonText}>{loadingExport ? 'Processing…' : 'Export Excel'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={printReport} style={styles.secondaryButton}>
+                      <Text style={styles.secondaryButtonText}>Print</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <Text style={styles.historySub}>Type: {selectedReport.type}</Text>
+                <Text style={styles.historySub}>Range: {selectedReport.range}</Text>
+                <View style={{ gap: spacing.sm }}>
+                  {Array.isArray(selectedReport.data) && selectedReport.data.length > 0 ? (
+                    selectedReport.data.map((o) => (
+                      <View key={String(o.id || Math.random())} style={styles.orderCard}>
+                        <View style={styles.orderHeader}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.orderTitle}>{String(o.title || `${o.vehicle_year ? o.vehicle_year + ' ' : ''}${o.vehicle_make || ''} ${o.vehicle_model || ''}`).trim()}</Text>
+                            <Text style={styles.orderSub}>Supplier: {String(o.supplier_email || '—')}</Text>
+                          </View>
+                          <StatusPill status={normalizeStatusLabel(o.status || o.status_raw || 'pending')} />
+                        </View>
+                        <View style={styles.orderDetails}>
+                          <Text style={styles.detailText}>Customer: {String(o.customer_name || '—')}</Text>
+                          <Text style={styles.detailText}>Phone: {String(o.customer_phone || '—')}</Text>
+                          <Text style={styles.detailText}>VIN: {String(o.vehicle_vin || '—')}</Text>
+                          <Text style={styles.detailText}>Total: ${Number(o.quote_total || 0).toFixed(2)}</Text>
+                        </View>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.emptyText}>No data for selected report.</Text>
+                  )}
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.md }}>
+                  <TouchableOpacity style={styles.primaryButton} onPress={() => setViewModalOpen(false)}>
+                    <Text style={styles.primaryButtonText}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <Text style={styles.emptyText}>No report selected.</Text>
+            )}
+          </ScrollView>
         </View>
       </Modal>
     </ScrollView>
